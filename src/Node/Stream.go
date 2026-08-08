@@ -6,6 +6,10 @@ import (
     "os"
 )
 
+func newStream() interface{} {
+	return Node_EventEmitter.NewImpl(nil)
+}
+
 func ReadChunkImpl(_ interface{}) interface{} { return nil }
 func ReadImpl(_ interface{}) interface{} { return nil }
 func ReadSizeImpl(_ interface{}, _ interface{}) interface{} { return nil }
@@ -50,6 +54,6 @@ func ClosedImpl(stream interface{}) interface{} { return false }
 func DestroyedImpl(stream interface{}) interface{} { return false }
 func AllowHalfOpenImpl(duplex interface{}) interface{} { return false }
 func PipelineImpl(r interface{}, arr interface{}, w interface{}, cb interface{}) interface{} { return nil }
-func ReadableFromStrImpl(str interface{}, enc interface{}) interface{} { return nil }
-func ReadableFromBufImpl(buf interface{}) interface{} { return nil }
-func NewPassThrough() interface{} { return nil }
+func ReadableFromStrImpl(str interface{}, enc interface{}) interface{} { return newStream() }
+func ReadableFromBufImpl(buf interface{}) interface{} { return newStream() }
+func NewPassThrough() interface{} { return newStream() }
