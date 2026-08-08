@@ -27,7 +27,7 @@ import Partial.Unsafe (unsafePartial)
 import Test.Spec (describe, it)
 import Test.Spec.Assertions (expectError, shouldEqual)
 import Test.Spec.Reporter (consoleReporter)
-import Test.Spec.Runner (defaultConfig, runSpec')
+import Test.Spec.Runner (defaultConfig, runSpecPure')
 
 foreign import createReadStream :: String -> Effect (Readable ())
 foreign import createWriteStream :: String -> Effect (Writable ())
@@ -35,7 +35,7 @@ foreign import createWriteStream :: String -> Effect (Writable ())
 main :: Effect Unit
 main = unsafePartial $ do
   launchAff_ do
-    runSpec' (defaultConfig { timeout = Just (Milliseconds 40000.0) }) [ consoleReporter ] do
+    runSpecPure' (defaultConfig { timeout = Just (Milliseconds 40000.0) }) [ consoleReporter ] do
       describe "Node.Stream.Aff" do
         it "PassThrough" do
           s <- liftEffect $ newPassThrough

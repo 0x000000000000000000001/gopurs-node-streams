@@ -21,7 +21,7 @@ import Partial.Unsafe (unsafePartial)
 import Test.Spec (describe, it)
 import Test.Spec.Assertions (shouldEqual)
 import Test.Spec.Reporter (consoleReporter)
-import Test.Spec.Runner (runSpec)
+import Test.Spec.Runner (runSpecPure)
 import Unsafe.Coerce (unsafeCoerce)
 
 foreign import createReadStream :: String -> Effect (Readable ())
@@ -35,7 +35,7 @@ completion = case _ of
 main :: Effect Unit
 main = unsafePartial $ do
   runAff_ completion do
-    runSpec [ consoleReporter ] do
+    runSpecPure [ consoleReporter ] do
       describe "Node.Stream.Aff" do
         it "reads 1" do
           infile <- liftEffect $ createReadStream =<< pure <<< flip Array.unsafeIndex 2 =<< argv

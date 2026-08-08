@@ -20,7 +20,7 @@ import Node.Stream.Aff (readSome)
 import Partial.Unsafe (unsafePartial)
 import Test.Spec (describe, it)
 import Test.Spec.Reporter (consoleReporter)
-import Test.Spec.Runner (runSpec)
+import Test.Spec.Runner (runSpecPure)
 import Unsafe.Coerce (unsafeCoerce)
 
 foreign import stdin :: Readable ()
@@ -33,7 +33,7 @@ completion = case _ of
 main :: Effect Unit
 main = unsafePartial $ do
   runAff_ completion do
-    runSpec [ consoleReporter ] do
+    runSpecPure [ consoleReporter ] do
       describe "Node.Stream.Aff" do
         it "reads 1" do
           sequential $ alt
