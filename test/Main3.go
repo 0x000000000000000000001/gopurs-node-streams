@@ -2,12 +2,12 @@ package Test_Main3
 
 import "gopurs/output/gopurs_runtime"
 
-func newStream() interface{} {
+func newStreamMain3() interface{} {
 	return Node_EventEmitter_NewImpl(nil)
 }
 
 func CreateReadStream(path interface{}) interface{} {
-    return func(_ interface{}) interface{} { return newStream() }
+    return func(_ interface{}) interface{} { return newStreamMain3() }
 }
 
 func Argv(_ interface{}) interface{} {

@@ -1,8 +1,8 @@
 package Test_Main4
 
 
-func newStream() interface{} {
+func newStreamMain4() interface{} {
 	return Node_EventEmitter_NewImpl(nil)
 }
 
-var Stdin = newStream()
+var Stdin = newStreamMain4()
