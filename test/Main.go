@@ -1,9 +1,8 @@
 package Test_Main
 
-import "gopurs/output/Node.EventEmitter"
 
 func newStream() interface{} {
-	return Node_EventEmitter.NewImpl(nil)
+	return Node_EventEmitter_NewImpl(nil)
 }
 
 func CreateGzip(_ interface{}) interface{} {

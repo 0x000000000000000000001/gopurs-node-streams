@@ -1,9 +1,8 @@
 package Test_Main1
 
-import "gopurs/output/Node.EventEmitter"
 
 func newStream() interface{} {
-	return Node_EventEmitter.NewImpl(nil)
+	return Node_EventEmitter_NewImpl(nil)
 }
 
 func CreateReadStream(path interface{}) interface{} {
