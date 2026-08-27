@@ -22,7 +22,7 @@ func extractAny(val interface{}) any {
 }
 
 func newStream() interface{} {
-    ee := Node_EventEmitter_NewImpl(nil).(*Node_EventEmitter_EventEmitter)
+    ee := Node_EventEmitter_NewImpl(nil).(*EventEmitter)
     ee.Any = &MockStream{}
 	return ee
 }
@@ -70,7 +70,7 @@ func WriteImpl(writable interface{}, buffer interface{}) interface{} {
     w := extractAny(writable)
     
     var iw io.Writer
-    if e, ok := w.(*Node_EventEmitter_EventEmitter); ok {
+    if e, ok := w.(*EventEmitter); ok {
         iw, _ = e.Any.(io.Writer)
     } else {
         iw, _ = w.(io.Writer)
@@ -86,9 +86,9 @@ func WriteImpl(writable interface{}, buffer interface{}) interface{} {
     return nil
 }
 func WriteCbImpl(writable interface{}, buffer interface{}, cb interface{}) interface{} {
-    WriteImpl(writable, buffer)
+    Node_Stream_WriteImpl(writable, buffer)
     w := extractAny(writable)
-    if e, ok := w.(*Node_EventEmitter_EventEmitter); ok {
+    if e, ok := w.(*EventEmitter); ok {
         if ms, ok := e.Any.(*MockStream); ok {
             if ms.Err != nil {
                 gopurs_runtime.Apply(cb.(gopurs_runtime.Value), gopurs_runtime.Box(ms.Err))
@@ -106,7 +106,7 @@ func WriteCbImpl(writable interface{}, buffer interface{}, cb interface{}) inter
 func WriteStringImpl(writable interface{}, str interface{}, enc interface{}) interface{} {
     w := extractAny(writable)
     var iw io.Writer
-    if e, ok := w.(*Node_EventEmitter_EventEmitter); ok {
+    if e, ok := w.(*EventEmitter); ok {
         iw, _ = e.Any.(io.Writer)
     } else {
         iw, _ = w.(io.Writer)
@@ -117,9 +117,9 @@ func WriteStringImpl(writable interface{}, str interface{}, enc interface{}) int
     return nil
 }
 func WriteStringCbImpl(writable interface{}, str interface{}, enc interface{}, cb interface{}) interface{} {
-    WriteStringImpl(writable, str, enc)
+    Node_Stream_WriteStringImpl(writable, str, enc)
     w := extractAny(writable)
-    if e, ok := w.(*Node_EventEmitter_EventEmitter); ok {
+    if e, ok := w.(*EventEmitter); ok {
         if ms, ok := e.Any.(*MockStream); ok {
             if ms.Err != nil {
                 gopurs_runtime.Apply(cb.(gopurs_runtime.Value), gopurs_runtime.Box(ms.Err))
@@ -140,7 +140,7 @@ func SetDefaultEncodingImpl(writable interface{}, enc interface{}) interface{} {
 func EndImpl(writable interface{}) interface{} {
     w := extractAny(writable)
     var ic io.Closer
-    if e, ok := w.(*Node_EventEmitter_EventEmitter); ok {
+    if e, ok := w.(*EventEmitter); ok {
         ic, _ = e.Any.(io.Closer)
         if ms, ok := e.Any.(*MockStream); ok {
             ms.Closed = true
@@ -157,14 +157,14 @@ func EndImpl(writable interface{}) interface{} {
 func EndCbImpl(writable interface{}, cb interface{}) interface{} {
     w := extractAny(writable)
     var err error
-    if e, ok := w.(*Node_EventEmitter_EventEmitter); ok {
+    if e, ok := w.(*EventEmitter); ok {
         if ms, ok := e.Any.(*MockStream); ok {
             if ms.Err != nil {
                 err = ms.Err
             }
         }
     }
-    EndImpl(writable)
+    Node_Stream_EndImpl(writable)
     if err != nil {
         gopurs_runtime.Apply(cb.(gopurs_runtime.Value), gopurs_runtime.Box(err))
     } else {
@@ -175,7 +175,7 @@ func EndCbImpl(writable interface{}, cb interface{}) interface{} {
 func DestroyImpl(stream interface{}) interface{} { return nil }
 func DestroyErrorImpl(stream interface{}, err interface{}) interface{} {
     w := extractAny(stream)
-    if e, ok := w.(*Node_EventEmitter_EventEmitter); ok {
+    if e, ok := w.(*EventEmitter); ok {
         if ms, ok := e.Any.(*MockStream); ok {
             ms.Err = fmt.Errorf("stream destroyed")
         }
