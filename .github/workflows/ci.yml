@@ -1,35 +1,62 @@
 name: CI
-
 on:
   push:
     branches: [master]
   pull_request:
     branches: [master]
-
+permissions:
+  contents: read
 jobs:
-  build:
+  linux:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: purescript-contrib/setup-purescript@main
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
-          purescript: "latest"
-          purs-tidy: "latest"
-          spago: "unstable"
-
-      - name: Build source
-        run: spago build
-
-      - name: Run tests
+          node-version: 24.8.0
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: 1.25.1
+          cache: false
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: 0x000000000000000000001/gopurs
+          ref: 9482d14dc34feb9f7f78c5a4547de847a6a7a007
+          path: .ci-gopurs-runtime
+          sparse-checkout: runtime
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: 0x000000000000000000001/gopurs-node-event-emitter
+          ref: be06532c41d348cede5a185b2c32faab2009caa0
+          path: .ci-libraries/gopurs-node-event-emitter
+          sparse-checkout: src
+      - name: Check native pipe behavior
+        run: node test/pipe-native.mjs
+        env:
+          GOPURS_ROOT: ${{ github.workspace }}/.ci-gopurs-runtime
+          GOPURS_LIBRARY_ROOT: ${{ github.workspace }}/.ci-libraries
+          GOPURS_NATIVE_TEST_RACE: '1'
+      - name: Install pinned JavaScript toolchain
+        run: npm install --global purescript@0.15.16 spago@0.93.45 purs-tidy@0.11.1
+      - name: Select upstream JavaScript dependencies
+        # Go sibling overrides contain native-only FFI; the JS check uses the
+        # same declared dependencies and pinned registry set without overrides.
         run: |
-          set -x
+          node --input-type=module <<'JS'
+          import { readFileSync, rmSync, writeFileSync } from 'node:fs';
+          const parts = readFileSync('spago.go.yaml', 'utf8').split('  extraPackages:');
+          if (parts.length !== 2) throw new Error('Expected one Go override section');
+          rmSync('spago.yaml');
+          rmSync('spago.lock');
+          writeFileSync('spago.yaml', parts[0]);
+          JS
+      - name: Run JavaScript tests
+        run: |
           spago test
           spago test --main Test.Main1
           spago test --main Test.Main2
           spago test --main Test.Main3 -- <(head --bytes 1000000 /dev/zero)
           spago test --main Test.Main4
-
       - name: Check formatting
-        run: |
-          purs-tidy check src test
+        run: purs-tidy check src test

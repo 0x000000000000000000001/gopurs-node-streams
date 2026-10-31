@@ -5,6 +5,7 @@ import (
     "os"
     "io"
     "fmt"
+    "sync"
 )
 
 type MockStream struct {
@@ -50,13 +51,232 @@ func ResumeImpl(_ interface{}) interface{} { return nil }
 func PauseImpl(_ interface{}) interface{} { return nil }
 func IsPausedImpl(_ interface{}) interface{} { return false }
 func PipeImpl(readable interface{}, writable interface{}) interface{} {
-    data, _ := os.ReadFile("test/Streams.purs")
-    os.WriteFile("tmp/Streams.purs", data, 0644)
-    rVal := readable.(gopurs_runtime.Value)
-    Node_EventEmitter_GopursUnsafeEmitFn1(rVal, "end", nil)
-    return nil
+	return nativePipeStart(readable, writable, true)
 }
-func UnpipeImpl(readable interface{}, writable interface{}) interface{} { return nil }
+func PipeCbImpl(readable interface{}, writable interface{}, options interface{}) interface{} {
+	end := gopurs_runtime.RecordGet(options.(gopurs_runtime.Value), "end")
+	return nativePipeStart(readable, writable, end.IntVal != 0)
+}
+
+type nativePipe struct {
+	source, destination  gopurs_runtime.Value
+	writer               io.Writer
+	end                  bool
+	mu                   sync.Mutex
+	writeMu              sync.Mutex
+	active               bool
+	data, ended, stopped gopurs_runtime.Value
+}
+
+func (p *nativePipe) isActive() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.active
+}
+func (p *nativePipe) markStopped() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	wasActive := p.active
+	p.active = false
+	return wasActive
+}
+func (p *nativePipe) detach() {
+	Node_EventEmitter_GopursUnsafeOff(p.source, "data", p.data, nil)
+	Node_EventEmitter_GopursUnsafeOff(p.source, "end", p.ended, nil)
+	for _, event := range []string{"error", "close"} {
+		Node_EventEmitter_GopursUnsafeOff(p.source, event, p.stopped, nil)
+	}
+	for _, event := range []string{"error", "close", "finish"} {
+		Node_EventEmitter_GopursUnsafeOff(p.destination, event, p.stopped, nil)
+	}
+}
+func (p *nativePipe) stop() {
+	if p.markStopped() {
+		p.detach()
+		Node_EventEmitter_GopursUnsafeEmitFn2(p.destination, "unpipe", p.source, nil)
+	}
+}
+func (p *nativePipe) write(chunk gopurs_runtime.Value) {
+	p.writeMu.Lock()
+	if !p.isActive() {
+		p.writeMu.Unlock()
+		return
+	}
+	var data []byte
+	var err error
+	switch value := extractAny(chunk).(type) {
+	case []byte:
+		data = value
+	default:
+		if chunk.Type == gopurs_runtime.TypeString {
+			data = []byte(chunk.StrVal())
+		} else {
+			err = fmt.Errorf("Node.Stream.pipe: unsupported chunk type %T", value)
+		}
+	}
+	if err == nil {
+		n, writeError := p.writer.Write(data)
+		err = writeError
+		if err == nil && n != len(data) {
+			err = io.ErrShortWrite
+		}
+	}
+	stopped := err != nil && p.markStopped()
+	p.writeMu.Unlock()
+	if err != nil {
+		if stopped {
+			p.detach()
+			Node_EventEmitter_GopursUnsafeEmitFn2(p.destination, "unpipe", p.source, nil)
+		}
+		Node_EventEmitter_GopursUnsafeEmitFn2(p.destination, "error", gopurs_runtime.Box(err), nil)
+	}
+}
+func (p *nativePipe) finish() {
+	p.writeMu.Lock()
+	if !p.markStopped() {
+		p.writeMu.Unlock()
+		return
+	}
+	var err error
+	shouldEnd := p.end && p.writer != os.Stdout && p.writer != os.Stderr
+	if shouldEnd {
+		if writer, ok := p.writer.(interface{ CloseWrite() error }); ok {
+			err = writer.CloseWrite()
+		} else if writer, ok := p.writer.(io.Closer); ok {
+			err = writer.Close()
+		}
+	}
+	p.writeMu.Unlock()
+	p.detach()
+	if err != nil {
+		Node_EventEmitter_GopursUnsafeEmitFn2(p.destination, "error", gopurs_runtime.Box(err), nil)
+	} else if shouldEnd {
+		Node_EventEmitter_GopursUnsafeEmitFn1(p.destination, "finish", nil)
+	}
+	Node_EventEmitter_GopursUnsafeEmitFn2(p.destination, "unpipe", p.source, nil)
+}
+func nativePipeStart(readable interface{}, writable interface{}, end bool) interface{} {
+	source := readable.(gopurs_runtime.Value)
+	destination := writable.(gopurs_runtime.Value)
+	emitter := extractAny(destination).(*EventEmitter)
+	writer, ok := emitter.Any.(io.Writer)
+	if !ok {
+		Node_EventEmitter_GopursUnsafeEmitFn2(destination, "error", gopurs_runtime.Box(fmt.Errorf("Node.Stream.pipe: destination has no native writer")), nil)
+		return nil
+	}
+	p := &nativePipe{source: source, destination: destination, writer: writer, end: end, active: true}
+	p.data = gopurs_runtime.Func(func(chunk gopurs_runtime.Value) gopurs_runtime.Value { p.write(chunk); return gopurs_runtime.Value{} })
+	p.ended = gopurs_runtime.Func(func(_ gopurs_runtime.Value) gopurs_runtime.Value { p.finish(); return gopurs_runtime.Value{} })
+	p.stopped = gopurs_runtime.Func(func(_ gopurs_runtime.Value) gopurs_runtime.Value { p.stop(); return gopurs_runtime.Value{} })
+	Node_EventEmitter_GopursUnsafeOn(source, "end", p.ended, nil)
+	for _, event := range []string{"error", "close"} {
+		Node_EventEmitter_GopursUnsafeOn(source, event, p.stopped, nil)
+	}
+	for _, event := range []string{"error", "close", "finish"} {
+		Node_EventEmitter_GopursUnsafeOn(destination, event, p.stopped, nil)
+	}
+	Node_EventEmitter_GopursUnsafeEmitFn2(destination, "pipe", source, nil)
+	// Register data last: a native file/HTTPS producer may start at this point.
+	if p.isActive() {
+		Node_EventEmitter_GopursUnsafeOn(source, "data", p.data, nil)
+	}
+	if !p.isActive() {
+		p.detach()
+	}
+	return nil
+}
+
+// These adapters give file streams a producer while leaving event-driven
+// sockets and HTTPS responses with their existing, single reader.
+type nativeReadable struct {
+	reader    io.ReadCloser
+	openError error
+	emitter   *EventEmitter
+	once      sync.Once
+}
+
+func CreateNativeReadable(reader io.ReadCloser, openError error) interface{} {
+	emitter := Node_EventEmitter_NewImpl(nil).(*EventEmitter)
+	emitter.Any = &nativeReadable{reader: reader, openError: openError, emitter: emitter}
+	return emitter
+}
+func (r *nativeReadable) OnListenerAdded(event string) {
+	if event == "data" {
+		r.once.Do(func() { go r.read() })
+	}
+}
+func (r *nativeReadable) read() {
+	boxed := gopurs_runtime.Box(r.emitter)
+	defer func() {
+		if r.openError == nil && r.reader != nil {
+			if err := r.reader.Close(); err != nil {
+				Node_EventEmitter_GopursUnsafeEmitFn2(boxed, "error", gopurs_runtime.Box(err), nil)
+			}
+		}
+		Node_EventEmitter_GopursUnsafeEmitFn1(boxed, "close", nil)
+	}()
+	if r.openError != nil {
+		Node_EventEmitter_GopursUnsafeEmitFn2(boxed, "error", gopurs_runtime.Box(r.openError), nil)
+		return
+	}
+	buffer := make([]byte, 32*1024)
+	for {
+		n, err := r.reader.Read(buffer)
+		if n > 0 {
+			chunk := append([]byte(nil), buffer[:n]...)
+			Node_EventEmitter_GopursUnsafeEmitFn2(boxed, "data", gopurs_runtime.Box(chunk), nil)
+		}
+		if err != nil {
+			if err == io.EOF {
+				Node_EventEmitter_GopursUnsafeEmitFn1(boxed, "end", nil)
+			} else {
+				Node_EventEmitter_GopursUnsafeEmitFn2(boxed, "error", gopurs_runtime.Box(err), nil)
+			}
+			return
+		}
+	}
+}
+
+type nativeWritable struct {
+	writer     io.WriteCloser
+	openError  error
+	mu         sync.Mutex
+	closed     bool
+	closeError error
+}
+
+func CreateNativeWritable(writer io.WriteCloser, openError error) interface{} {
+	emitter := Node_EventEmitter_NewImpl(nil).(*EventEmitter)
+	emitter.Any = &nativeWritable{writer: writer, openError: openError}
+	return emitter
+}
+func (w *nativeWritable) Write(data []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.openError != nil {
+		return 0, w.openError
+	}
+	if w.closed {
+		return 0, io.ErrClosedPipe
+	}
+	return w.writer.Write(data)
+}
+func (w *nativeWritable) Close() error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.openError != nil {
+		return w.openError
+	}
+	if !w.closed {
+		w.closed = true
+		w.closeError = w.writer.Close()
+	}
+	return w.closeError
+}
+func UnpipeImpl(readable interface{}, writable interface{}) interface{} {
+	// General unpipe control is not implemented by this targeted pipe adapter.
+	return nil
+}
 func UnpipeAllImpl(_ interface{}) interface{} { return nil }
 func WriteableImpl(_ interface{}) interface{} { return false }
 func WriteableEndedImpl(_ interface{}) interface{} { return false }
