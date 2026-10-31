@@ -2,6 +2,8 @@
 set -e
 cd "$(dirname "$0")/.."
 
+node test/pipe-native.mjs
+
 CLEAN=0
 for arg in "$@"; do
   if [ "$arg" == "-c" ] || [ "$arg" == "--clean" ]; then
